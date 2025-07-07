@@ -1,110 +1,16 @@
 import streamlit as st
 import pandas as pd
-import json
+import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 from supabase import Client
 import numpy as np
 import os
-import plotly.graph_objects as go
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-
-# Initialize Supabase client (reuse your existing function)
-@st.cache_resource
-def init_supabase():
-    try:
-        SUPABASE_URL = st.secrets["SUPABASE_URL"]
-        SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
-    except:
-        SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
-    
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        st.error("❌ Supabase credentials not found!")
-        st.stop()
-    
-    from supabase import Client
-    return Client(SUPABASE_URL, SUPABASE_KEY)
-
-supabase: Client = init_supabase()
-
-# API endpoint function
-def get_latest_reading_for_api():
-    """Get latest reading for API - similar to your existing function"""
-    try:
-        response = supabase.table('water_temperature').select("*").order('timestamp', desc=True).limit(1).execute()
-        if response.data:
-            return response.data[0]
-        else:
-            return None
-    except Exception as e:
-        st.error(f"Error getting latest reading: {str(e)}")
-        return None
-
-# Check if this is an API request
-query_params = st.query_params
-if 'api' in query_params and query_params['api'] == 'temperature':
-    
-    # Set the page to be wider and hide Streamlit UI for API
-    st.set_page_config(page_title="Temperature API", layout="wide")
-    
-    # Get the latest temperature data
-    latest_reading = get_latest_reading_for_api()
-    
-    if latest_reading:
-        # Calculate status
-        timestamp = pd.to_datetime(latest_reading['timestamp'])
-        time_diff = datetime.now() - timestamp.replace(tzinfo=None)
-        
-        if time_diff.total_seconds() < 300:  # Less than 5 minutes
-            status = "live"
-        elif time_diff.total_seconds() < 1800:  # Less than 30 minutes
-            status = "recent"
-        else:
-            status = "offline"
-        
-        # Create API response
-        api_response = {
-            "temperature": latest_reading['temperature'],
-            "timestamp": latest_reading['timestamp'],
-            "status": status,
-            "minutesSinceUpdate": int(time_diff.total_seconds() / 60),
-            "location": latest_reading.get('location', 'Stromness Harbour'),
-            "source": latest_reading.get('source', 'buoy'),
-            "rssi": latest_reading.get('rssi'),
-            "formatted": {
-                "temperature": f"{latest_reading['temperature']:.1f}°C",
-                "lastUpdate": timestamp.strftime('%H:%M'),
-                "date": timestamp.strftime('%Y-%m-%d')
-            }
-        }
-        
-        # Display as clean JSON
-        st.markdown("### 🌊 Temperature API Response")
-        st.json(api_response)
-        
-        # Add some API documentation
-        st.markdown("---")
-        st.markdown("### 📖 API Documentation")
-        st.markdown(f"**Endpoint:** `{st.secrets.get('STREAMLIT_URL', 'https://stromness-museum-bouy.streamlit.app')}?api=temperature`")
-        st.markdown("**Method:** GET")
-        st.markdown("**Response:** JSON with current temperature data")
-        
-        st.stop()  # Stop processing the rest of the Streamlit app
-    else:
-        # No data available
-        error_response = {
-            "error": "No temperature data available",
-            "timestamp": datetime.now().isoformat()
-        }
-        st.json(error_response)
-        st.stop()
-
-# If not an API request, continue with your normal Streamlit app
-# Your existing code starts here...
 
 # Page configuration
 st.set_page_config(
@@ -113,14 +19,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Add API information to sidebar
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔗 API Access")
-st.sidebar.markdown("**Public API Endpoint:**")
-api_url = f"https://stromness-museum-bouy.streamlit.app/?api=temperature"
-st.sidebar.code(api_url, language="text")
-st.sidebar.markdown("*Returns JSON with current temperature data*")
 
 # Custom CSS for beautiful styling
 st.markdown("""
@@ -207,6 +105,15 @@ supabase: Client = init_supabase()
 st.markdown('<h1 class="main-header">🌊 Stromness Museum Water Monitoring Buoy</h1>', unsafe_allow_html=True)
 st.markdown('<p class="sub-header">Real-time sea temperature monitoring from Stromness Harbor</p>', unsafe_allow_html=True)
 
+# Project opener
+st.markdown("""
+<div style="background: #f8f9fa; padding: 1.5rem; border-radius: 10px; margin: 2rem 0; border-left: 4px solid #667eea;">
+<p style="margin: 0; font-size: 1.1rem; line-height: 1.6; color: #333;">
+This sea temperature monitoring buoy was designed by <strong>Tern 360</strong> in partnership with the <strong>West Mainland Youth Achievement group</strong>. It was part of an Oceans/Wellbeing/Arts and Youth project coordinated by <strong>Stromness Museum</strong> in 2025. It was funded by the <strong>Orkney Youth Local Action Group (YLAG)</strong>.
+</p>
+</div>
+""", unsafe_allow_html=True)
+
 # Deployment date - from environment variable or default
 deployment_date_str = os.getenv("DEPLOYMENT_DATE", "2024-11-01")
 try:
@@ -218,7 +125,8 @@ deployment_days = (datetime.now() - DEPLOYMENT_DATE).days
 st.markdown(f'<p style="text-align: center; color: #666; margin-bottom: 2rem;">📅 This project started on {DEPLOYMENT_DATE.strftime("%B %d, %Y")} • {deployment_days} days of monitoring</p>', unsafe_allow_html=True)
 
 # Sidebar for controls
-st.sidebar.header("📊 Data Controls")
+st.sidebar.header("📊 Dashboard Controls")
+st.sidebar.markdown("*Controls statistics and additional charts below*")
 
 # Time range selector - Extended options
 time_options = {
@@ -251,7 +159,26 @@ auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=True)
 # Add refresh interval for auto-refresh
 if auto_refresh:
     st.sidebar.info("🔄 Page will refresh automatically every 30 seconds")
-    time.sleep(1)  # Prevent too frequent refreshes
+    
+    # Initialize session state for timing
+    if 'last_run' not in st.session_state:
+        st.session_state.last_run = time.time()
+    
+    # Check if it's time to refresh
+    elapsed = time.time() - st.session_state.last_run
+    
+    if elapsed >= 30:
+        st.session_state.last_run = time.time()
+        st.cache_data.clear()
+        st.rerun()
+    else:
+        # Show countdown
+        remaining = int(30 - elapsed)
+        st.sidebar.markdown(f"⏱️ Next refresh: {remaining}s")
+        
+        # Use a small sleep and rerun to update countdown
+        time.sleep(1)
+        st.rerun()
 
 @st.cache_data(ttl=60)  # Cache for 1 minute
 def load_temperature_data(hours_back):
@@ -377,16 +304,75 @@ with col3:
         st.metric("📈 Total Readings", "0")
 
 # Main chart
-st.subheader(f"🌊 Temperature Trends - {selected_range}")
+st.subheader(f"🌊 Temperature Trends")
 
-if not df.empty:
+# Add time range buttons for the main chart
+st.markdown("**Quick Time Range Selection:**")
+chart_col1, chart_col2, chart_col3, chart_col4, chart_col5 = st.columns(5)
+
+with chart_col1:
+    if st.button("📅 Last Day", key="chart_day"):
+        st.session_state.chart_hours = 24
+with chart_col2:
+    if st.button("📅 Last Week", key="chart_week"):
+        st.session_state.chart_hours = 168
+with chart_col3:
+    if st.button("📅 Last Month", key="chart_month"):
+        st.session_state.chart_hours = 720
+with chart_col4:
+    if st.button("📅 Last 3 Months", key="chart_3months"):
+        st.session_state.chart_hours = 2160
+with chart_col5:
+    if st.button("📅 All Data", key="chart_all"):
+        st.session_state.chart_hours = None
+
+# Initialize chart time range if not set
+if 'chart_hours' not in st.session_state:
+    st.session_state.chart_hours = 168  # Default to last week
+
+# Load data for the chart (separate from sidebar selection)
+@st.cache_data(ttl=60)
+def load_chart_data(chart_hours):
+    try:
+        if chart_hours is None:  # All data
+            response = supabase.table('water_temperature').select("*").order('timestamp', desc=True).execute()
+        else:
+            start_time = datetime.now() - timedelta(hours=chart_hours)
+            start_time_str = start_time.isoformat()
+            response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp', desc=True).execute()
+        
+        if response.data:
+            chart_df = pd.DataFrame(response.data)
+            chart_df['timestamp'] = pd.to_datetime(chart_df['timestamp'])
+            return chart_df
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading chart data: {str(e)}")
+        return pd.DataFrame()
+
+# Load chart data
+chart_df = load_chart_data(st.session_state.chart_hours)
+
+# Display current chart time range
+chart_range_names = {
+    24: "Last Day",
+    168: "Last Week", 
+    720: "Last Month",
+    2160: "Last 3 Months",
+    None: "All Data"
+}
+current_range = chart_range_names.get(st.session_state.chart_hours, "Custom")
+st.markdown(f"*Showing: **{current_range}** ({len(chart_df):,} readings)*")
+
+if not chart_df.empty:
     # Create beautiful plotly chart
     fig = go.Figure()
     
     # Add temperature line
     fig.add_trace(go.Scatter(
-        x=df['timestamp'],
-        y=df['temperature'],
+        x=chart_df['timestamp'],
+        y=chart_df['temperature'],
         mode='lines+markers',
         name='Water Temperature',
         line=dict(color='#4fc3f7', width=3),
@@ -432,6 +418,10 @@ if not df.empty:
     st.info("🏊 **Cold Water Swimming Guide**: The temperature bands shown above reflect how open water swimmers typically experience different water temperatures. While not strictly scientific, these ranges are based on anecdotal experiences from the swimming community.")
     
     # Additional charts in columns
+    st.markdown("---")
+    st.subheader(f"📈 Additional Analysis - {selected_range}")
+    st.markdown("*The charts below use the time range selected in the sidebar*")
+    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -476,11 +466,8 @@ if not df.empty:
         st.plotly_chart(fig_hourly, use_container_width=True)
 
 else:
-    st.info(f"📭 No data available for the selected time range ({selected_range})")
-    st.markdown("**Possible reasons:**")
-    st.markdown("- The buoy hasn't transmitted data recently")
-    st.markdown("- Database connection issues")
-    st.markdown("- Selected time range is too narrow")
+    st.info(f"📭 No data available for the selected chart time range ({current_range})")
+    st.markdown("**Try selecting a different time range above**")
 
 # Data download section
 st.subheader("💾 Download Historical Data")
@@ -545,25 +532,26 @@ st.markdown('<div class="project-info">', unsafe_allow_html=True)
 st.markdown("## 🌊 About This Project")
 
 st.markdown("""
-This water monitoring system was designed and implemented by the **Youth of Stromness** 
-in partnership with **Tern360** and **Stromness Museum**.
+Through the project the youth group helped to design the buoy and its digital technology. They built a housing for inside the museum to display the data. They also spent time with artist **Jenny Pope**, learning about how to focus on their own wellbeing, fostering resilience in the face of the climate crisis through creativity. Finally the group took part in a snorkel at the Museum with **Kraken Diving** to see what marine life lives on their doorstep and to deploy the monitoring buoy.
 
-Through a series of hands-on workshops, young people from the Stromness Youth Group learned about 
-marine science, IoT technology, and environmental monitoring. They helped design, build, and deploy 
-this monitoring buoy to collect real-time data about their local marine environment.
+**Stromness Museum** is the museum of the Orkney Natural History Society. Its founding President in 1837 was the Rev Dr **Charles Clouston**, who was a dedicated long term weather recorder for the county. It is in this tradition that we are now creating a set of present day sea temperature records for Orkney.
 
-The project combines education, technology, and citizen science to help understand how our seas 
-are changing over time. The data collected helps researchers, educators, and the community better 
-understand the marine environment around Orkney.
+Charles Clouston wrote a paper *"An explanation of the popular weather prognostics of Scotland on scientific principles."* which can be read online here: [https://babel.hathitrust.org/cgi/pt?id=hvd.hxcr4m&seq=7](https://babel.hathitrust.org/cgi/pt?id=hvd.hxcr4m&seq=7)
+
+The **West Mainland Youth Achievement Group** are an awards based youth group run in Stromness for ages 10+. The group love taking part in activities and community events while working towards Dynamic Youth or Youth Achievement Awards. Through this project the group worked towards a **Dynamic Youth Award**.
+
+Sea swimming and snorkelling are popular pastimes in Orkney. Check out the [Orkney Snorkel Trail](https://scottishwildlifetrust.org.uk/wp-content/uploads/2024/08/202407_Orkney-snorkel-trail_04-ONLINE.pdf) from the Scottish Wildlife Trust.
 """)
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown("### [🏛️ Stromness Museum](https://stromnessmuseum.org.uk)")
 with col2:
     st.markdown("### [🌐 Tern360](https://www.tern360.com)")
+with col3:
+    st.markdown("### [🤿 Kraken Diving](https://www.krakendiving.co.uk)")
 
-st.markdown("*Special thanks to all the young scientists and engineers who made this project possible!*")
+st.markdown("*Special thanks to the West Mainland Youth Achievement Group, Jenny Pope, and all the young people who made this project possible!*")
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Safe Cold Water Swimming Section
@@ -663,17 +651,16 @@ if df.empty:
             except Exception as e:
                 st.error(f"❌ Connection failed: {str(e)}")
 
-# Auto-refresh implementation
+# Final spacing
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Auto-refresh at the very end
 if auto_refresh:
-    # JavaScript-based auto-refresh that doesn't interfere with Streamlit
+    # This will automatically refresh the page every 30 seconds
     st.markdown("""
     <script>
-    // Auto-refresh page every 30 seconds
-    setTimeout(function() {
-        window.location.reload(true);
+    setTimeout(function(){
+        window.location.reload(1);
     }, 30000);
     </script>
     """, unsafe_allow_html=True)
-
-# Final spacing
-st.markdown("<br>", unsafe_allow_html=True)

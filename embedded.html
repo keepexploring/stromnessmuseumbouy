@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Water Temperature</title>
+    
+    <style>
+        body, html {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+        }
+
+        #temp-widget {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            width: 280px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #temp-widget:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        .widget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .widget-header h4 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+
+        #status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #ffc107;
+            transition: background-color 0.5s ease;
+        }
+
+        #status-dot.live { background-color: #28a745; }
+        #status-dot.recent { background-color: #ffc107; }
+        #status-dot.offline { background-color: #dc3545; }
+
+        .widget-content #temperature {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 15px 0;
+            line-height: 1;
+            text-shadow: 1px 1px 5px rgba(0,0,0,0.2);
+        }
+
+        .widget-footer {
+            font-size: 0.8rem;
+            opacity: 0.8;
+            margin-top: 15px;
+        }
+
+        .widget-footer p, .widget-footer span {
+            margin: 0;
+        }
+
+        .error-message {
+            font-size: 1.2rem;
+            color: #ffcccb;
+        }
+
+        .powered-by {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+
+        .loading {
+            opacity: 0.7;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="temp-widget">
+        <div class="widget-header">
+            <h4>🌊 Stromness Harbour Water Temperature</h4>
+            <div id="status-dot" title="Loading..."></div>
+        </div>
+        <div class="widget-content">
+            <p id="temperature" class="loading">--.-°C</p>
+        </div>
+        <div class="widget-footer">
+            <p>Last updated: <span id="last-update">loading...</span> GMT</p>
+        </div>
+    </div>
+
+    <div class="powered-by">
+        🔒 Supabase Edge Function
+    </div>
+
+    <script>
+        // Use the working Edge Function endpoint
+        const API_URL = 'https://pwmadyittuxmncjcpybo.supabase.co/functions/v1/temperature';
+        
+        const tempElement = document.getElementById('temperature');
+        const lastUpdateElement = document.getElementById('last-update');
+        const statusElement = document.getElementById('status-dot');
+
+        async function fetchLatestTemperature() {
+            try {
+                console.log('🚀 Fetching from Edge Function:', API_URL);
+                
+                const response = await fetch(API_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                console.log('📊 Response status:', response.status);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('📄 Received data:', data);
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (data && data.temperature) {
+                    updateWidget(data);
+                } else {
+                    throw new Error('No temperature data in response');
+                }
+
+            } catch (error) {
+                console.error('❌ Error fetching temperature:', error);
+                showError(error.message);
+            }
+        }
+
+        function updateWidget(data) {
+            console.log('🌡️ Updating widget with:', data);
+            
+            // Remove loading animation
+            tempElement.classList.remove('loading');
+            
+            // Update temperature display
+            if (data.formatted && data.formatted.temperature) {
+                // Clean up any encoding issues (like Â°C)
+                const cleanTemp = data.formatted.temperature.replace(/Â/g, '');
+                tempElement.textContent = cleanTemp;
+            } else {
+                tempElement.textContent = `${data.temperature.toFixed(1)}°C`;
+            }
+
+            // Update last update time
+            if (data.formatted && data.formatted.lastUpdate) {
+                lastUpdateElement.textContent = data.formatted.lastUpdate;
+            } else {
+                const timestamp = new Date(data.timestamp);
+                lastUpdateElement.textContent = timestamp.toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+            }
+
+            // Update status dot
+            const status = data.status || 'live';
+            statusElement.classList.remove('live', 'recent', 'offline');
+            statusElement.classList.add(status);
+            statusElement.title = `Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+
+            console.log('✅ Widget updated successfully');
+        }
+
+        function showError(message) {
+            tempElement.classList.remove('loading');
+            tempElement.innerHTML = '<span class="error-message">Error</span>';
+            lastUpdateElement.textContent = message;
+            statusElement.classList.remove('live', 'recent');
+            statusElement.classList.add('offline');
+            statusElement.title = 'Error: ' + message;
+        }
+
+        // Start fetching data immediately
+        fetchLatestTemperature();
+        
+        // Update every 60 seconds
+        setInterval(fetchLatestTemperature, 60000);
+    </script>
+
+</body>
+</html
