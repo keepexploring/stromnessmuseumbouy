@@ -118,6 +118,10 @@ This sea temperature monitoring buoy was designed by <strong>Tern 360</strong> i
 monitoring_days = (datetime.now() - DATA_CUTOFF_DATE).days
 st.markdown(f'<p style="text-align: center; color: #666; margin-bottom: 2rem;">📅 Data collection from {DATA_CUTOFF_DATE.strftime("%B %d, %Y")} onwards • {monitoring_days} days of monitoring</p>', unsafe_allow_html=True)
 
+# Initialize session state for chart hours if not present
+if 'chart_hours' not in st.session_state:
+    st.session_state.chart_hours = 168  # Default to Last Week
+
 # Sidebar for controls
 st.sidebar.header("📊 Dashboard Controls")
 st.sidebar.markdown("*Controls statistics and additional charts below*")
@@ -289,56 +293,21 @@ chart_col1, chart_col2, chart_col3, chart_col4, chart_col5 = st.columns(5)
 with chart_col1:
     if st.button("📅 Last Day", key="chart_day"):
         st.session_state.chart_hours = 24
-        st.cache_data.clear()  # Clear cache to force data reload
-        st.rerun()
 with chart_col2:
     if st.button("📅 Last Week", key="chart_week"):
         st.session_state.chart_hours = 168
-        st.cache_data.clear()  # Clear cache to force data reload
-        st.rerun()
 with chart_col3:
     if st.button("📅 Last Month", key="chart_month"):
         st.session_state.chart_hours = 720
-        st.cache_data.clear()  # Clear cache to force data reload
-        st.rerun()
 with chart_col4:
     if st.button("📅 Last 3 Months", key="chart_3months"):
         st.session_state.chart_hours = 2160
-        st.cache_data.clear()  # Clear cache to force data reload
-        st.rerun()
 with chart_col5:
     if st.button("📅 All Data", key="chart_all"):
         st.session_state.chart_hours = None
-        st.cache_data.clear()  # Clear cache to force data reload
-        st.rerun()
 
-if 'chart_hours' not in st.session_state:
-    st.session_state.chart_hours = 168
-
-@st.cache_data(ttl=60)
-def load_chart_data(chart_hours):
-    try:
-        if chart_hours is None:
-            start_time = DATA_CUTOFF_DATE
-        else:
-            calculated_start = datetime.now() - timedelta(hours=chart_hours)
-            start_time = max(calculated_start, DATA_CUTOFF_DATE)
-        
-        start_time_str = start_time.isoformat()
-        response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp', desc=True).execute()
-        
-        if response.data:
-            chart_df = pd.DataFrame(response.data)
-            chart_df['timestamp'] = pd.to_datetime(chart_df['timestamp'])
-            return chart_df
-        else:
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error loading chart data: {str(e)}")
-        return pd.DataFrame()
-
-# Load chart data with current session state
-chart_df = load_chart_data(st.session_state.chart_hours)
+# Load chart data based on session state
+chart_df = load_temperature_data(st.session_state.chart_hours)
 
 chart_range_names = {
     24: "Last Day",
@@ -623,10 +592,5 @@ if df.empty:
                 st.success(f"✅ Connection successful! Table exists.")
             except Exception as e:
                 st.error(f"❌ Connection failed: {str(e)}")
-
-# Auto-refresh at the end
-if auto_refresh:
-    # Clear cache periodically to get fresh data
-    st.cache_data.clear()
 
 st.markdown("<br>", unsafe_allow_html=True)
