@@ -153,20 +153,14 @@ auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=True)
 if auto_refresh:
     st.sidebar.info("🔄 Page will refresh automatically every 30 seconds")
     
-    if 'last_run' not in st.session_state:
-        st.session_state.last_run = time.time()
-    
-    elapsed = time.time() - st.session_state.last_run
-    
-    if elapsed >= 30:
-        st.session_state.last_run = time.time()
-        st.cache_data.clear()
-        st.rerun()
-    else:
-        remaining = int(30 - elapsed)
-        st.sidebar.markdown(f"⏱️ Next refresh: {remaining}s")
-        time.sleep(1)
-        st.rerun()
+    # Simple auto-refresh without blocking the interface
+    st.markdown("""
+    <script>
+    setTimeout(function(){
+        window.location.reload(1);
+    }, 30000);
+    </script>
+    """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=60)
 def load_temperature_data(hours_back):
@@ -621,12 +615,7 @@ if df.empty:
 
 # Auto-refresh at the end
 if auto_refresh:
-    st.markdown("""
-    <script>
-    setTimeout(function(){
-        window.location.reload(1);
-    }, 30000);
-    </script>
-    """, unsafe_allow_html=True)
+    # Clear cache periodically to get fresh data
+    st.cache_data.clear()
 
 st.markdown("<br>", unsafe_allow_html=True)
