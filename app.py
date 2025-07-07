@@ -121,6 +121,8 @@ st.markdown(f'<p style="text-align: center; color: #666; margin-bottom: 2rem;">�
 # Initialize session state for chart hours if not present
 if 'chart_hours' not in st.session_state:
     st.session_state.chart_hours = 168  # Default to Last Week
+if 'chart_update_counter' not in st.session_state:
+    st.session_state.chart_update_counter = 0
 
 # Sidebar for controls
 st.sidebar.header("📊 Dashboard Controls")
@@ -167,7 +169,8 @@ if auto_refresh:
     """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=60)
-def load_temperature_data(hours_back):
+def load_temperature_data(hours_back, cache_key=None):
+    """Load temperature data with cache key for proper invalidation"""
     try:
         if hours_back is None:
             start_time = DATA_CUTOFF_DATE
@@ -176,11 +179,21 @@ def load_temperature_data(hours_back):
             start_time = max(calculated_start, DATA_CUTOFF_DATE)
         
         start_time_str = start_time.isoformat()
-        response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp', desc=True).execute()
+        
+        # Calculate appropriate limit based on expected data frequency
+        # Assuming data every ~5 minutes, that's 12 per hour
+        if hours_back is None:
+            limit = 100000  # Get all data
+        else:
+            limit = max(int(hours_back * 15), 1000)  # 15 readings per hour max, minimum 1000
+        
+        response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp', desc=True).limit(limit).execute()
         
         if response.data:
             df = pd.DataFrame(response.data)
             df['timestamp'] = pd.to_datetime(df['timestamp'])
+            # Sort by timestamp ascending for better plotting
+            df = df.sort_values('timestamp')
             return df
         else:
             return pd.DataFrame()
@@ -201,7 +214,7 @@ def get_latest_reading():
         return None
 
 # Load data
-df = load_temperature_data(hours_back)
+df = load_temperature_data(hours_back, f"sidebar_{hours_back}")
 latest_reading = get_latest_reading()
 
 # Main dashboard layout
@@ -293,21 +306,33 @@ chart_col1, chart_col2, chart_col3, chart_col4, chart_col5 = st.columns(5)
 with chart_col1:
     if st.button("📅 Last Day", key="chart_day"):
         st.session_state.chart_hours = 24
+        st.session_state.chart_update_counter += 1
 with chart_col2:
     if st.button("📅 Last Week", key="chart_week"):
         st.session_state.chart_hours = 168
+        st.session_state.chart_update_counter += 1
 with chart_col3:
     if st.button("📅 Last Month", key="chart_month"):
         st.session_state.chart_hours = 720
+        st.session_state.chart_update_counter += 1
 with chart_col4:
     if st.button("📅 Last 3 Months", key="chart_3months"):
         st.session_state.chart_hours = 2160
+        st.session_state.chart_update_counter += 1
 with chart_col5:
     if st.button("📅 All Data", key="chart_all"):
         st.session_state.chart_hours = None
+        st.session_state.chart_update_counter += 1
 
 # Load chart data based on session state
-chart_df = load_temperature_data(st.session_state.chart_hours)
+chart_df = load_temperature_data(st.session_state.chart_hours, f"chart_{st.session_state.chart_hours}_{st.session_state.chart_update_counter}")
+
+# Debug info
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Debug Info:**")
+st.sidebar.write(f"Chart hours: {st.session_state.chart_hours}")
+st.sidebar.write(f"Chart data points: {len(chart_df)}")
+st.sidebar.write(f"Update counter: {st.session_state.chart_update_counter}")
 
 chart_range_names = {
     24: "Last Day",
