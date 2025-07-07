@@ -289,18 +289,28 @@ chart_col1, chart_col2, chart_col3, chart_col4, chart_col5 = st.columns(5)
 with chart_col1:
     if st.button("📅 Last Day", key="chart_day"):
         st.session_state.chart_hours = 24
+        st.cache_data.clear()  # Clear cache to force data reload
+        st.rerun()
 with chart_col2:
     if st.button("📅 Last Week", key="chart_week"):
         st.session_state.chart_hours = 168
+        st.cache_data.clear()  # Clear cache to force data reload
+        st.rerun()
 with chart_col3:
     if st.button("📅 Last Month", key="chart_month"):
         st.session_state.chart_hours = 720
+        st.cache_data.clear()  # Clear cache to force data reload
+        st.rerun()
 with chart_col4:
     if st.button("📅 Last 3 Months", key="chart_3months"):
         st.session_state.chart_hours = 2160
+        st.cache_data.clear()  # Clear cache to force data reload
+        st.rerun()
 with chart_col5:
     if st.button("📅 All Data", key="chart_all"):
         st.session_state.chart_hours = None
+        st.cache_data.clear()  # Clear cache to force data reload
+        st.rerun()
 
 if 'chart_hours' not in st.session_state:
     st.session_state.chart_hours = 168
@@ -327,6 +337,7 @@ def load_chart_data(chart_hours):
         st.error(f"Error loading chart data: {str(e)}")
         return pd.DataFrame()
 
+# Load chart data with current session state
 chart_df = load_chart_data(st.session_state.chart_hours)
 
 chart_range_names = {
