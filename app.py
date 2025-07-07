@@ -89,7 +89,7 @@ if 'api' in query_params and query_params['api'] == 'temperature':
         # Add some API documentation
         st.markdown("---")
         st.markdown("### 📖 API Documentation")
-        st.markdown(f"**Endpoint:** `{st.secrets.get('STREAMLIT_URL', 'https://your-app.streamlit.app')}?api=temperature`")
+        st.markdown(f"**Endpoint:** `{st.secrets.get('STREAMLIT_URL', 'https://stromness-museum-bouy.streamlit.app')}?api=temperature`")
         st.markdown("**Method:** GET")
         st.markdown("**Response:** JSON with current temperature data")
         
