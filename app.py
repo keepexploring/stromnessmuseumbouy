@@ -118,7 +118,7 @@ st.set_page_config(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔗 API Access")
 st.sidebar.markdown("**Public API Endpoint:**")
-api_url = f"https://your-streamlit-app.streamlit.app/?api=temperature"
+api_url = f"https://stromness-museum-bouy.streamlit.app/?api=temperature"
 st.sidebar.code(api_url, language="text")
 st.sidebar.markdown("*Returns JSON with current temperature data*")
 
