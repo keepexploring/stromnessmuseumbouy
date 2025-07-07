@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import json
 from datetime import datetime, timedelta
 import time
 from supabase import Client
@@ -12,6 +11,100 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Initialize Supabase client (reuse your existing function)
+@st.cache_resource
+def init_supabase():
+    try:
+        SUPABASE_URL = st.secrets["SUPABASE_URL"]
+        SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
+    except:
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+    
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        st.error("❌ Supabase credentials not found!")
+        st.stop()
+    
+    from supabase import Client
+    return Client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase: Client = init_supabase()
+
+# API endpoint function
+def get_latest_reading_for_api():
+    """Get latest reading for API - similar to your existing function"""
+    try:
+        response = supabase.table('water_temperature').select("*").order('timestamp', desc=True).limit(1).execute()
+        if response.data:
+            return response.data[0]
+        else:
+            return None
+    except Exception as e:
+        st.error(f"Error getting latest reading: {str(e)}")
+        return None
+
+# Check if this is an API request
+query_params = st.query_params
+if 'api' in query_params and query_params['api'] == 'temperature':
+    
+    # Set the page to be wider and hide Streamlit UI for API
+    st.set_page_config(page_title="Temperature API", layout="wide")
+    
+    # Get the latest temperature data
+    latest_reading = get_latest_reading_for_api()
+    
+    if latest_reading:
+        # Calculate status
+        timestamp = pd.to_datetime(latest_reading['timestamp'])
+        time_diff = datetime.now() - timestamp.replace(tzinfo=None)
+        
+        if time_diff.total_seconds() < 300:  # Less than 5 minutes
+            status = "live"
+        elif time_diff.total_seconds() < 1800:  # Less than 30 minutes
+            status = "recent"
+        else:
+            status = "offline"
+        
+        # Create API response
+        api_response = {
+            "temperature": latest_reading['temperature'],
+            "timestamp": latest_reading['timestamp'],
+            "status": status,
+            "minutesSinceUpdate": int(time_diff.total_seconds() / 60),
+            "location": latest_reading.get('location', 'Stromness Harbour'),
+            "source": latest_reading.get('source', 'buoy'),
+            "rssi": latest_reading.get('rssi'),
+            "formatted": {
+                "temperature": f"{latest_reading['temperature']:.1f}°C",
+                "lastUpdate": timestamp.strftime('%H:%M'),
+                "date": timestamp.strftime('%Y-%m-%d')
+            }
+        }
+        
+        # Display as clean JSON
+        st.markdown("### 🌊 Temperature API Response")
+        st.json(api_response)
+        
+        # Add some API documentation
+        st.markdown("---")
+        st.markdown("### 📖 API Documentation")
+        st.markdown(f"**Endpoint:** `{st.secrets.get('STREAMLIT_URL', 'https://your-app.streamlit.app')}?api=temperature`")
+        st.markdown("**Method:** GET")
+        st.markdown("**Response:** JSON with current temperature data")
+        
+        st.stop()  # Stop processing the rest of the Streamlit app
+    else:
+        # No data available
+        error_response = {
+            "error": "No temperature data available",
+            "timestamp": datetime.now().isoformat()
+        }
+        st.json(error_response)
+        st.stop()
+
+# If not an API request, continue with your normal Streamlit app
+# Your existing code starts here...
+
 # Page configuration
 st.set_page_config(
     page_title="Stromness Museum Water Monitoring",
@@ -19,6 +112,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Add API information to sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔗 API Access")
+st.sidebar.markdown("**Public API Endpoint:**")
+api_url = f"https://your-streamlit-app.streamlit.app/?api=temperature"
+st.sidebar.code(api_url, language="text")
+st.sidebar.markdown("*Returns JSON with current temperature data*")
 
 # Custom CSS for beautiful styling
 st.markdown("""
