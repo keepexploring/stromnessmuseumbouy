@@ -6,6 +6,7 @@ import time
 from supabase import Client
 import numpy as np
 import os
+import plotly.graph_objects as go
 from dotenv import load_dotenv
 
 # Load environment variables
