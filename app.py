@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Data cutoff date - earliest data to display
-DATA_CUTOFF_DATE = datetime(2025, 6, 30)  # June 30th, 2025
+DATA_CUTOFF_DATE = datetime(2024, 6, 30)  # June 30th, 2024 (corrected year)
 
 # Page configuration
 st.set_page_config(
@@ -168,52 +168,125 @@ if auto_refresh:
     </script>
     """, unsafe_allow_html=True)
 
+def aggregate_data(df, hours):
+    """Aggregate data based on time range"""
+    df = df.set_index('timestamp')
+    
+    if hours <= 168:  # Week
+        # 15-minute intervals
+        df = df.resample('15min').agg({
+            'temperature': 'mean',
+            'rssi': 'mean'
+        }).dropna()
+    elif hours <= 720:  # Month
+        # Hourly intervals
+        df = df.resample('1H').agg({
+            'temperature': 'mean',
+            'rssi': 'mean'
+        }).dropna()
+    else:  # Longer
+        # Daily intervals
+        df = df.resample('1D').agg({
+            'temperature': 'mean',
+            'rssi': 'mean'
+        }).dropna()
+    
+    return df.reset_index()
+
 @st.cache_data(ttl=60)
 def load_temperature_data(hours_back, cache_key=None):
-    """Load temperature data using Supabase function with smart aggregation"""
+    """Load temperature data using Edge Function or fallback methods"""
     try:
         if hours_back is None:
             start_time = DATA_CUTOFF_DATE
-            # Calculate actual hours for "All Data"
             actual_hours = int((datetime.now() - DATA_CUTOFF_DATE).total_seconds() / 3600)
         else:
             calculated_start = datetime.now() - timedelta(hours=hours_back)
             start_time = max(calculated_start, DATA_CUTOFF_DATE)
-            actual_hours = hours_back
+            actual_hours = int(hours_back)
         
-        start_time_str = start_time.isoformat()
+        start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Use the Supabase function for efficient aggregated data retrieval
-        response = supabase.rpc('get_temperature_data', {
-            'start_timestamp': start_time_str,
-            'hours_range': actual_hours
-        }).execute()
+        # Method 1: Try Edge Function
+        try:
+            st.sidebar.info(f"🔄 Calling Edge Function...")
+            
+            response = supabase.functions.invoke(
+                'hyper-api',  # Your Edge Function name
+                invoke_options={
+                    'body': {
+                        'start_timestamp': start_time_str,
+                        'hours_range': actual_hours
+                    }
+                }
+            )
+            
+            if response.data:
+                result = response.data
+                if 'data' in result and result['data']:
+                    df = pd.DataFrame(result['data'])
+                    df['timestamp'] = pd.to_datetime(df['timestamp'])
+                    df = df.sort_values('timestamp')
+                    
+                    # Show aggregation info if available
+                    aggregated = result.get('aggregated', False)
+                    original_count = result.get('original_count', len(df))
+                    
+                    if aggregated:
+                        st.sidebar.success(f"✅ Edge Function: {len(df)} points (aggregated from {original_count})")
+                    else:
+                        st.sidebar.success(f"✅ Edge Function: {len(df)} points (raw data)")
+                    
+                    return df
+                else:
+                    st.sidebar.warning("Edge Function returned no data")
+                    
+        except Exception as edge_error:
+            st.sidebar.error(f"Edge Function error: {str(edge_error)}")
+        
+        # Method 2: Try the RPC function
+        try:
+            response = supabase.rpc('get_temperature_data', {
+                'start_timestamp': start_time_str,
+                'hours_range': int(actual_hours)
+            }).execute()
+            
+            if response.data:
+                df = pd.DataFrame(response.data)
+                if 'time_stamp' in df.columns:
+                    df.rename(columns={'time_stamp': 'timestamp'}, inplace=True)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.sort_values('timestamp')
+                st.sidebar.success(f"✅ RPC function returned {len(df)} points")
+                return df
+                
+        except Exception as rpc_error:
+            st.sidebar.warning(f"RPC failed: {str(rpc_error)}")
+        
+        # Method 3: Direct query (limited to 1000 rows)
+        st.sidebar.warning("⚠️ Using direct query (1000 row limit)")
+        response = supabase.table('water_temperature')\
+            .select("*")\
+            .gte('timestamp', start_time_str)\
+            .order('timestamp')\
+            .execute()
         
         if response.data:
             df = pd.DataFrame(response.data)
-            # Rename time_stamp back to timestamp for consistency with the rest of the app
-            if 'time_stamp' in df.columns:
-                df.rename(columns={'time_stamp': 'timestamp'}, inplace=True)
             df['timestamp'] = pd.to_datetime(df['timestamp'])
-            # Data is already sorted by timestamp ASC from the function
+            df = df.sort_values('timestamp')
+            
+            # Show warning if we hit the limit
+            if len(df) == 1000:
+                st.sidebar.error("❌ Hit 1000 row limit - data incomplete!")
+            
             return df
         else:
             return pd.DataFrame()
+            
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
-        # Fallback to direct table query if function doesn't exist
-        try:
-            response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp').execute()
-            if response.data:
-                df = pd.DataFrame(response.data)
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
-                st.warning("⚠️ Using fallback query (limited to 1000 rows). Please create the Supabase function for better performance.")
-                return df
-            else:
-                return pd.DataFrame()
-        except Exception as e2:
-            st.error(f"Fallback query also failed: {str(e2)}")
-            return pd.DataFrame()
+        return pd.DataFrame()
 
 @st.cache_data(ttl=30)
 def get_latest_reading():
