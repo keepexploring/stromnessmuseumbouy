@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Data cutoff date - earliest data to display
-DATA_CUTOFF_DATE = datetime(2024, 6, 30)  # June 30th, 2024 (corrected year)
+DATA_CUTOFF_DATE = datetime(2025, 6, 30)  # June 30th, 2024 (corrected year)
 
 # Page configuration
 st.set_page_config(
