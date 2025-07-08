@@ -222,11 +222,11 @@ def load_temperature_data(hours_back, cache_key=None):
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df = df.sort_values('timestamp')
                 
-                # Show appropriate message based on data points
-                if len(df) < 1000 or actual_hours > 24:
-                    st.sidebar.success(f"✅ Loaded {len(df)} points (aggregated)")
-                else:
-                    st.sidebar.success(f"✅ Loaded {len(df)} points")
+                # # Show appropriate message based on data points
+                # if len(df) < 1000 or actual_hours > 24:
+                #     st.sidebar.success(f"✅ Loaded {len(df)} points (aggregated)")
+                # else:
+                #     st.sidebar.success(f"✅ Loaded {len(df)} points")
                 
                 return df
             else:
@@ -386,12 +386,12 @@ with chart_col5:
 # Load chart data based on session state
 chart_df = load_temperature_data(st.session_state.chart_hours, f"chart_{st.session_state.chart_hours}_{st.session_state.chart_update_counter}")
 
-# Debug info
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Debug Info:**")
-st.sidebar.write(f"Chart hours: {st.session_state.chart_hours}")
-st.sidebar.write(f"Chart data points: {len(chart_df)}")
-st.sidebar.write(f"Update counter: {st.session_state.chart_update_counter}")
+# # Debug info
+# st.sidebar.markdown("---")
+# st.sidebar.markdown("**Debug Info:**")
+# st.sidebar.write(f"Chart hours: {st.session_state.chart_hours}")
+# st.sidebar.write(f"Chart data points: {len(chart_df)}")
+# st.sidebar.write(f"Update counter: {st.session_state.chart_update_counter}")
 
 chart_range_names = {
     24: "Last Day",
