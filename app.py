@@ -195,7 +195,7 @@ def aggregate_data(df, hours):
 
 @st.cache_data(ttl=60)
 def load_temperature_data(hours_back, cache_key=None):
-    """Load temperature data using Edge Function or fallback methods"""
+    """Load temperature data using Supabase RPC function with smart aggregation"""
     try:
         if hours_back is None:
             start_time = DATA_CUTOFF_DATE
@@ -205,50 +205,14 @@ def load_temperature_data(hours_back, cache_key=None):
             start_time = max(calculated_start, DATA_CUTOFF_DATE)
             actual_hours = int(hours_back)
         
+        # Format timestamp for PostgreSQL
         start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Method 1: Try Edge Function
-        try:
-            st.sidebar.info(f"🔄 Calling Edge Function...")
-            
-            response = supabase.functions.invoke(
-                'hyper-api',  # Your Edge Function name
-                invoke_options={
-                    'body': {
-                        'start_timestamp': start_time_str,
-                        'hours_range': actual_hours
-                    }
-                }
-            )
-            
-            if response.data:
-                result = response.data
-                if 'data' in result and result['data']:
-                    df = pd.DataFrame(result['data'])
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df = df.sort_values('timestamp')
-                    
-                    # Show aggregation info if available
-                    aggregated = result.get('aggregated', False)
-                    original_count = result.get('original_count', len(df))
-                    
-                    if aggregated:
-                        st.sidebar.success(f"✅ Edge Function: {len(df)} points (aggregated from {original_count})")
-                    else:
-                        st.sidebar.success(f"✅ Edge Function: {len(df)} points (raw data)")
-                    
-                    return df
-                else:
-                    st.sidebar.warning("Edge Function returned no data")
-                    
-        except Exception as edge_error:
-            st.sidebar.error(f"Edge Function error: {str(edge_error)}")
-        
-        # Method 2: Try the RPC function
+        # Use the RPC function
         try:
             response = supabase.rpc('get_temperature_data', {
                 'start_timestamp': start_time_str,
-                'hours_range': int(actual_hours)
+                'hours_range': actual_hours
             }).execute()
             
             if response.data:
@@ -257,32 +221,40 @@ def load_temperature_data(hours_back, cache_key=None):
                     df.rename(columns={'time_stamp': 'timestamp'}, inplace=True)
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df = df.sort_values('timestamp')
-                st.sidebar.success(f"✅ RPC function returned {len(df)} points")
+                
+                # Show appropriate message based on data points
+                if len(df) < 1000 or actual_hours > 24:
+                    st.sidebar.success(f"✅ Loaded {len(df)} points (aggregated)")
+                else:
+                    st.sidebar.success(f"✅ Loaded {len(df)} points")
+                
                 return df
+            else:
+                st.sidebar.warning("⚠️ No data found for this time range")
+                return pd.DataFrame()
                 
         except Exception as rpc_error:
-            st.sidebar.warning(f"RPC failed: {str(rpc_error)}")
-        
-        # Method 3: Direct query (limited to 1000 rows)
-        st.sidebar.warning("⚠️ Using direct query (1000 row limit)")
-        response = supabase.table('water_temperature')\
-            .select("*")\
-            .gte('timestamp', start_time_str)\
-            .order('timestamp')\
-            .execute()
-        
-        if response.data:
-            df = pd.DataFrame(response.data)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.sort_values('timestamp')
+            st.sidebar.error(f"❌ RPC error: {str(rpc_error)}")
             
-            # Show warning if we hit the limit
-            if len(df) == 1000:
-                st.sidebar.error("❌ Hit 1000 row limit - data incomplete!")
+            # Fallback to direct query (with 1000 row limit warning)
+            st.sidebar.warning("⚠️ Using fallback direct query (1000 row limit)")
+            response = supabase.table('water_temperature')\
+                .select("*")\
+                .gte('timestamp', start_time_str)\
+                .order('timestamp')\
+                .execute()
             
-            return df
-        else:
-            return pd.DataFrame()
+            if response.data:
+                df = pd.DataFrame(response.data)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df = df.sort_values('timestamp')
+                
+                if len(df) == 1000:
+                    st.sidebar.error("❌ Hit 1000 row limit - data may be incomplete!")
+                
+                return df
+            else:
+                return pd.DataFrame()
             
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
