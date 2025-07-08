@@ -170,36 +170,50 @@ if auto_refresh:
 
 @st.cache_data(ttl=60)
 def load_temperature_data(hours_back, cache_key=None):
-    """Load temperature data with cache key for proper invalidation"""
+    """Load temperature data using Supabase function with smart aggregation"""
     try:
         if hours_back is None:
             start_time = DATA_CUTOFF_DATE
+            # Calculate actual hours for "All Data"
+            actual_hours = int((datetime.now() - DATA_CUTOFF_DATE).total_seconds() / 3600)
         else:
             calculated_start = datetime.now() - timedelta(hours=hours_back)
             start_time = max(calculated_start, DATA_CUTOFF_DATE)
+            actual_hours = hours_back
         
         start_time_str = start_time.isoformat()
         
-        # Calculate appropriate limit based on expected data frequency
-        # Assuming data every ~5 minutes, that's 12 per hour
-        if hours_back is None:
-            limit = 100000  # Get all data
-        else:
-            limit = max(int(hours_back * 15), 1000)  # 15 readings per hour max, minimum 1000
-        
-        response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp', desc=True).limit(limit).execute()
+        # Use the Supabase function for efficient aggregated data retrieval
+        response = supabase.rpc('get_temperature_data', {
+            'start_timestamp': start_time_str,
+            'hours_range': actual_hours
+        }).execute()
         
         if response.data:
             df = pd.DataFrame(response.data)
+            # Rename time_stamp back to timestamp for consistency with the rest of the app
+            if 'time_stamp' in df.columns:
+                df.rename(columns={'time_stamp': 'timestamp'}, inplace=True)
             df['timestamp'] = pd.to_datetime(df['timestamp'])
-            # Sort by timestamp ascending for better plotting
-            df = df.sort_values('timestamp')
+            # Data is already sorted by timestamp ASC from the function
             return df
         else:
             return pd.DataFrame()
     except Exception as e:
         st.error(f"Error loading data: {str(e)}")
-        return pd.DataFrame()
+        # Fallback to direct table query if function doesn't exist
+        try:
+            response = supabase.table('water_temperature').select("*").gte('timestamp', start_time_str).order('timestamp').execute()
+            if response.data:
+                df = pd.DataFrame(response.data)
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                st.warning("⚠️ Using fallback query (limited to 1000 rows). Please create the Supabase function for better performance.")
+                return df
+            else:
+                return pd.DataFrame()
+        except Exception as e2:
+            st.error(f"Fallback query also failed: {str(e2)}")
+            return pd.DataFrame()
 
 @st.cache_data(ttl=30)
 def get_latest_reading():
